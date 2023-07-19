@@ -1,16 +1,19 @@
 import { cm1, cm2 } from "./common";
+import * as CANNON from "cannon-es";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+import gsap from "gsap";
 import { Floor } from "./Floor";
 import { Pillar } from "./Pillar";
 import { Bar } from "./Bar";
 import { SideLight } from "./SideLight";
 import { Glass } from "./Glass";
+import { Player } from "./Player";
 
 // Renderer
-// const canvas = document.querySelector('#three-canvas');
+const canvas = document.querySelector("#three-canvas");
 const renderer = new THREE.WebGLRenderer({
-  canvas: cm1.canvas,
+  canvas,
   antialias: true,
 });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -39,6 +42,8 @@ cm1.scene.add(ambientLight);
 const spotLightDistance = 50;
 const spotLight1 = new THREE.SpotLight(cm2.lightColor, 1);
 spotLight1.castShadow = true;
+spotLight1.shadow.mapSize.width = 2048;
+spotLight1.shadow.mapSize.height = 2048;
 const spotLight2 = spotLight1.clone();
 const spotLight3 = spotLight1.clone();
 const spotLight4 = spotLight1.clone();
@@ -68,8 +73,40 @@ cm1.scene.add(spotLight1, spotLight2, spotLight3, spotLight4);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
+// Cannon
+cm1.world.gravity.set(0, -9.82, 0);
+
+const defaultContactMaterial = new CANNON.ContactMaterial(
+  cm1.defaultMaterial,
+  cm1.defaultMaterial,
+  {
+    friction: 0.3,
+    restitution: 0.2,
+  }
+);
+const glassDefaultContactMaterial = new CANNON.ContactMaterial(
+  cm1.glassMaterial,
+  cm1.defaultMaterial,
+  {
+    friction: 1,
+    restitution: 0,
+  }
+);
+const playerGlassContactMaterial = new CANNON.ContactMaterial(
+  cm1.playerMaterial,
+  cm1.glassMaterial,
+  {
+    friction: 1,
+    restitution: 0,
+  }
+);
+cm1.world.defaultContactMaterial = defaultContactMaterial;
+cm1.world.addContactMaterial(glassDefaultContactMaterial);
+cm1.world.addContactMaterial(playerGlassContactMaterial);
+
 const glassUnitSize = 1.2;
 const numberOfGlass = 10;
+const objects = [];
 
 // Floor
 const floor = new Floor({
@@ -89,6 +126,7 @@ const pillar2 = new Pillar({
   y: 5.5,
   z: glassUnitSize * 12 + glassUnitSize / 2,
 });
+objects.push(pillar1, pillar2);
 
 // Bar
 const bar1 = new Bar({ name: "bar", x: -1.6, y: 10.3, z: 0 });
@@ -114,6 +152,11 @@ for (let i = 0; i < 49; i++) {
 // Glass
 let glassTypeNumber = 0;
 let glassTypes = [];
+const glassZ = [];
+for (let i = 0; i < numberOfGlass; i++) {
+  glassZ.push(-(i * glassUnitSize * 2 - glassUnitSize * 9));
+}
+
 for (let i = 0; i < numberOfGlass; i++) {
   glassTypeNumber = Math.round(Math.random());
   switch (glassTypeNumber) {
@@ -125,20 +168,88 @@ for (let i = 0; i < numberOfGlass; i++) {
       break;
   }
   const glass1 = new Glass({
+    step: i + 1,
     name: `glass-${glassTypes[0]}`,
     x: -1,
     y: 10.5,
-    z: i * glassUnitSize * 2 - glassUnitSize * 9,
+    z: glassZ[i],
     type: glassTypes[0],
+    cannonMaterial: cm1.glassMaterial,
   });
 
   const glass2 = new Glass({
+    step: i + 1,
     name: `glass-${glassTypes[1]}`,
     x: 1,
     y: 10.5,
-    z: i * glassUnitSize * 2 - glassUnitSize * 9,
+    z: glassZ[i],
     type: glassTypes[1],
+    cannonMaterial: cm1.glassMaterial,
   });
+
+  objects.push(glass1, glass2);
+}
+
+// Player
+const player = new Player({
+  name: "player",
+  x: 0,
+  y: 17.8,
+  z: 13,
+  rotationY: Math.PI,
+  cannonMaterial: cm1.playerMaterial,
+  mass: 30,
+});
+objects.push(player);
+
+// Raycaster
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+function checkIntersects() {
+  raycaster.setFromCamera(mouse, camera);
+
+  const intersects = raycaster.intersectObjects(cm1.scene.children);
+  for (const intersect of intersects) {
+    checkClickedObject(intersect.object);
+    break;
+  }
+}
+let fail = false;
+let jumping = false;
+function checkClickedObject(mesh) {
+  if (mesh.name.indexOf("glass") >= 0) {
+    if (jumping || fail) return;
+
+    if (mesh.step - 1 === cm2.step) {
+      jumping = true;
+      cm2.step++;
+      console.log(cm2.step);
+
+      switch (mesh.type) {
+        case "normal":
+          setTimeout(() => {
+            fail = true;
+          }, 700);
+          break;
+        case "strong":
+          break;
+      }
+
+      setTimeout(() => {
+        jumping = false;
+      }, 1000);
+
+      gsap.to(player.cannonBody.position, {
+        duration: 1,
+        x: mesh.position.x,
+        z: glassZ[cm2.step - 1],
+      });
+      gsap.to(player.cannonBody.position, {
+        duration: 0.4,
+        y: 12,
+      });
+    }
+  }
 }
 
 // 그리기
@@ -146,6 +257,21 @@ const clock = new THREE.Clock();
 
 function draw() {
   const delta = clock.getDelta();
+
+  if (cm1.mixer) cm1.mixer.update(delta);
+
+  cm1.world.step(1 / 60, delta, 3);
+  objects.forEach((item) => {
+    if (item.cannonBody) {
+      if (item.name === "player") {
+        item.modelMesh.position.copy(item.cannonBody.position);
+        if (fail) item.modelMesh.quaternion.copy(item.cannonBody.quaternion);
+      } else {
+        item.mesh.position.copy(item.cannonBody.position);
+        item.mesh.quaternion.copy(item.cannonBody.quaternion);
+      }
+    }
+  });
 
   controls.update();
 
@@ -162,5 +288,10 @@ function setSize() {
 
 // 이벤트
 window.addEventListener("resize", setSize);
+canvas.addEventListener("click", (e) => {
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  checkIntersects();
+});
 
 draw();

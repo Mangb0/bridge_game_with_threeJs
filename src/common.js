@@ -1,11 +1,22 @@
 import { Scene, BoxGeometry, SphereGeometry, MeshPhongMaterial } from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
+
+import { World, Material } from "cannon-es";
 
 export const cm1 = {
-  canvas: document.querySelector("#three-canvas"),
   scene: new Scene(),
+  gltfLoader: new GLTFLoader(),
+  mixer: undefined,
+
+  // cannon
+  world: new World(),
+  defaultMaterial: new Material("default"),
+  glassMaterial: new Material("glass"),
+  playerMaterial: new Material("player"),
 };
 
 export const cm2 = {
+  step: 0,
   backgroundColor: "#3e1322",
   lightColor: "#ffe9ac",
   floorColor: "#111",

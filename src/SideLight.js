@@ -9,7 +9,6 @@ export class SideLight {
     this.x = info.x || 0;
     this.y = info.y || 0;
     this.z = info.z || 0;
-    console.log(this.name, this.x, this.y, this.z);
 
     this.geometry = geo.sideLight;
     this.material = mat.sideLight;
